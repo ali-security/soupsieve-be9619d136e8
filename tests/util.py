@@ -2,6 +2,9 @@
 import unittest
 import bs4
 import textwrap
+import signal
+import subprocess
+import sys
 import soupsieve as sv
 import pytest
 
@@ -102,6 +105,57 @@ class TestCase(unittest.TestCase):
         print('----Running Assert Test----')
         with self.assertRaises(exception):
             self.compile_pattern(pattern, namespaces=namespace, custom=custom)
+
+    def assert_syntax_error_no_timeout(self, pattern, timeout=3):
+        """
+        Assert that a pattern fails for a syntax error, not a timeout error.
+
+        Catastrophic backtracking in the selector patterns makes compiling hang instead of
+        promptly raising a syntax error. Where `SIGALRM` is available, compiling is interrupted
+        once the timeout expires. Elsewhere (Windows), compiling runs in a child interpreter
+        that is killed once the timeout expires.
+        """
+
+        print('----Running Assert Syntax Error No Timeout Test----')
+        if hasattr(signal, 'SIGALRM'):
+
+            def timeout_handler(signum, frame):
+                raise TimeoutError
+
+            previous = signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(timeout)
+
+            passed = False
+            try:
+                with self.assertRaises(sv.SelectorSyntaxError):
+                    sv.compile(pattern)
+                passed = True
+            except TimeoutError:
+                pass
+            finally:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, previous)
+            self.assertTrue(passed, 'Compiling the pattern timed out')
+        else:
+            # The pattern is passed hex encoded so it reaches the child interpreter untouched.
+            code = (
+                "import sys\n"
+                "import soupsieve as sv\n"
+                "try:\n"
+                "    sv.compile(bytes.fromhex(sys.argv[1]).decode('utf-8'))\n"
+                "except sv.SelectorSyntaxError:\n"
+                "    sys.exit(0)\n"
+                "sys.exit(1)\n"
+            )
+            try:
+                # Allow extra time for the child interpreter to start up.
+                result = subprocess.run(
+                    [sys.executable, '-c', code, pattern.encode('utf-8').hex()],
+                    timeout=timeout + 10
+                )
+            except subprocess.TimeoutExpired:
+                self.fail('Compiling the pattern timed out')
+            self.assertEqual(result.returncode, 0, 'Compiling the pattern did not raise a syntax error')
 
     def assert_selector(self, markup, selectors, expected_ids, namespaces={}, custom=None, flags=0):
         """Assert selector."""

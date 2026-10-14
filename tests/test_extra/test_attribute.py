@@ -50,3 +50,34 @@ class TestAttribute(util.TestCase):
             ["div", "0", "1", "2", "3", "pre", "4", "6"],
             flags=util.HTML5
         )
+
+    def test_bad_attribute_unclused(self):
+        """Test bad attribute fails for syntax error, not timeout error."""
+
+        self.assert_syntax_error_no_timeout('[a="' + ('x' * 300))
+
+    def test_bad_attribute_unclosed_single_quote(self):
+        """Test bad attribute with an unclosed single quote fails for syntax error, not timeout error."""
+
+        self.assert_syntax_error_no_timeout("[a='" + ('x' * 300))
+
+    def test_bad_attribute_unclosed_escaped_newlines(self):
+        """Test bad attribute with unclosed escaped newlines fails for syntax error, not timeout error."""
+
+        self.assert_syntax_error_no_timeout('[a="' + ('\\\r' * 150))
+        self.assert_syntax_error_no_timeout("[a='" + ('\\\f' * 150))
+
+    def test_attribute_quoted_escaped_newlines(self):
+        """Test attribute with escaped newlines in a closed quoted value still matches."""
+
+        markup = """
+        <div id="1" data-test="ab"></div>
+        <div id="2" data-test="a b"></div>
+        """
+
+        self.assert_selector(
+            markup,
+            '[data-test="a\\\r\nb"], [data-test=\'a\\\rb\'], [data-test="a\\\fb"]',
+            ["1"],
+            flags=util.HTML
+        )
